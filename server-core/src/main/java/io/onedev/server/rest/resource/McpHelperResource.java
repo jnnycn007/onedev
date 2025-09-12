@@ -1,4 +1,4 @@
-package io.onedev.server.ai;
+package io.onedev.server.rest.resource;
 
 import java.io.Serializable;
 import java.text.MessageFormat;
@@ -18,6 +18,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.persistence.EntityNotFoundException;
 import javax.validation.Valid;
+import javax.validation.ValidationException;
 import javax.validation.constraints.NotNull;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -454,10 +455,8 @@ public class McpHelperResource {
 
     private Project getProject(String projectPath) {
         var project = projectManager.findByPath(projectPath);
-        if (project == null)
-            throw new NotFoundException("Project not found: " + projectPath);
-        if (!SecurityUtils.canAccessProject(project))
-            throw new UnauthorizedException("Unable to access project: " + projectPath);
+        if (project == null || !SecurityUtils.canAccessProject(project))
+            throw new NotFoundException("Project not found or inaccessible: " + projectPath);
         return project;
     }
 
@@ -2092,11 +2091,16 @@ public class McpHelperResource {
         if (reason == null)
             throw new NotAcceptableException("Reason is required");
             
-        Build build = jobManager.submit(project, ObjectId.fromString(commitHash), jobName, 
-            params, refName, SecurityUtils.getUser(), null, 
-            null, reason);
-        if (build.isFinished())
-            jobManager.resubmit(build, reason);
+        Build build;
+        try {
+            build = jobManager.submit(project, ObjectId.fromString(commitHash), jobName, 
+                params, refName, SecurityUtils.getUser(), null, 
+                null, reason);
+            if (build.isFinished())
+                jobManager.resubmit(build, reason);
+        } catch (ValidationException e) {
+            throw new NotAcceptableException(e.getMessage());
+        }
 
         var buildMap = getBuildMap(projectInfo.currentProject, build);
         buildMap.put("id", build.getId());
